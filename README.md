@@ -11,7 +11,7 @@
 A complete CI/CD setup for a full-stack **Django REST Framework + React** app:
 
 - **Every pull request** runs linting and tests for both the backend and the frontend, and checks that the Docker images build.
-- **Every merge to `main`** builds production Docker images, pushes them to GitHub Container Registry, deploys them to an **AWS EC2** server over SSH, and runs a health check against the live site.
+- **Every merge to `main`** builds production Docker images and pushes them to GitHub Container Registry. A deploy job then ships them to an **AWS EC2** server over SSH and runs a health check against the live site. The deploy job is switched on per repository with a `DEPLOY_ENABLED` variable; no public server is running for this repo right now, so it is currently skipped.
 - **Nginx** sits in front as a reverse proxy with **HTTPS from Let's Encrypt** (auto-renewing).
 - **Staging and production** are separate environments with their own servers, secrets and Django settings.
 
@@ -143,8 +143,10 @@ Finally, add a repository variable `DEPLOY_ENABLED` = `true` (*Settings → Secr
    ssh ubuntu@<ip> 'bash ec2-bootstrap.sh'
    ```
 4. **Create the environment file** – copy `.env.production.example` to `/opt/app/.env` on the server and fill in real values (generate the secret key with `python -c "import secrets; print(secrets.token_urlsafe(50))"`).
-5. **First deploy** – push to `main` (or run the *Deploy* workflow manually). This copies the compose file and scripts to `/opt/app`.
-6. **Enable HTTPS** – see below.
+5. **Copy the deploy files** – `scp -r docker-compose.prod.yml scripts ubuntu@<ip>:/opt/app/`
+6. **Log the server in to GHCR** – `echo <token> | docker login ghcr.io -u <github-user> --password-stdin` (a token with `read:packages`).
+7. **Enable HTTPS** – run `init-letsencrypt.sh` as shown below, with `TAG=main` so it uses the images CI already pushed.
+8. **Turn on deploys** – add the `DEPLOY_ENABLED=true` repository variable (see [GitHub setup](#github-setup)). From now on every merge to `main` deploys automatically.
 
 ## HTTPS with Let's Encrypt
 
@@ -158,6 +160,7 @@ Nginx can't start without a certificate, and Let's Encrypt needs Nginx running t
 ```bash
 ssh ubuntu@<ip>
 cd /opt/app
+export TAG=main                               # images built by CI for the main branch
 STAGING=1 bash scripts/init-letsencrypt.sh   # optional dry run with Let's Encrypt's test CA
 bash scripts/init-letsencrypt.sh
 ```
@@ -219,6 +222,11 @@ npm run build
 | `DELETE` | `/api/notes/<id>/` | Delete a note |
 
 ---
+
+## Known limitations
+
+- The notes API is intentionally unauthenticated: it is a small demo payload for the pipeline, not a product. A real app would add authentication (e.g. `IsAuthenticatedOrReadOnly`) before exposing write endpoints.
+- There is no public demo server; the deploy job is skipped until `DEPLOY_ENABLED` is set.
 
 ## What I'd add next
 
